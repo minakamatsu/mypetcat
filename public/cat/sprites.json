@@ -1,0 +1,25 @@
+{
+  "frameWidth": 32,
+  "frameHeight": 32,
+  "scale": 2,
+  "animations": {
+    "walk": {
+      "file": "walk.png",
+      "frameCount": 8,
+      "fps": 10,
+      "loop": true
+    },
+    "idle": {
+      "file": "idle.png",
+      "frameCount": 4,
+      "fps": 8,
+      "loop": true
+    },
+    "jump": {
+      "file": "jump.png",
+      "frameCount": 14,
+      "fps": 12,
+      "loop": false
+    }
+  }
+}
