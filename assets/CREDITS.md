@@ -2,22 +2,19 @@
 
 ## Grey cat (in use)
 
-Sprites are exported from **`assets/source/Cat_Grey.aseprite`** (your Aseprite project).
+Sprites export from **`assets/source/Cat_Grey.aseprite`** via `npm run sprites`.
 
-Runtime strips live in `public/cat/` (`walk.png`, `idle.png`, `jump.png`, `sprites.json`).
+| Behavior | Animation key | Aseprite tag |
+|----------|---------------|--------------|
+| Sitting (dormant) | `sit` | `Sit_1` |
+| Napping (dormant) | `nap` | `Dream` |
+| Short walk | `walk` | `W_1` |
+| Long idle flourish (`stretch` key) | `stretch` | `Idle_3` |
+| Brief alert | `alert` | `Idle_2` |
+| Touch: look | `look_tilt` | `Idle_Tilt_1` |
+| Touch: look up | `look_lift` | `Idle_Lift_1` |
+| Touch: sit & look | `sit_tilt` | `Sit_Tilt_1` |
+| Touch: happy | `happy` | `Idle_Yes` |
+| Touch: scratch | `scratch` | `Scratching_Start` |
 
-| App state | Aseprite tag |
-|-----------|----------------|
-| Walking | `W_1` |
-| Click / look | `Idle_Tilt_1` |
-| Hop at screen edge | `Jump_1` |
-
-Re-export after editing the Aseprite file:
-
-```bash
-npm run sprites
-```
-
-## License
-
-If this art is from the CC0 [Gray cat asset pack](https://opengameart.org/content/gray-cat-asset-pack) by Krystsina Staselovich (skristi), CC0 applies — attribution appreciated but not required.
+Tune vertical position in `scripts/export-sprites-from-aseprite.mjs`: `liftPx`, `drawOffsetY`, `canvasPadTop`, and per-animation `drawOffsetY`.

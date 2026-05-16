@@ -1,6 +1,5 @@
 /**
- * Export walk / idle / jump strips from assets/source/Cat_Grey.aseprite
- * into public/cat/ for the desktop pet runtime.
+ * Export cat animation strips from assets/source/Cat_Grey.aseprite
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -13,21 +12,74 @@ const root = join(__dirname, "..");
 const sourcePath = join(root, "assets", "source", "Cat_Grey.aseprite");
 const outDir = join(root, "public", "cat");
 
-/** App animation name → Aseprite tag name */
-const TAG_MAP = {
-  walk: "W_1",
-  idle: "Idle_Tilt_1",
-  jump: "Jump_1",
-};
-
 const MANIFEST = {
   frameWidth: 32,
   frameHeight: 32,
-  scale: 2,
+  scale: 3,
+  anchor: "bottom",
+  /** Feet line is fixed at canvas bottom; use padTop for tall poses only */
+  drawOffsetY: 0,
+  /** Nudge up on screen (source px); keep low so paws are not pushed under the bezel */
+  feetLiftPx: 0,
+  canvasPadTop: 28,
+  /** Extra transparent rows below feet (source px) — avoids OS/WebView clipping last rows */
+  canvasPadBottom: 8,
+  /** Side padding so wide poses are not clipped when flipped */
+  canvasPadLeft: 14,
+  canvasPadRight: 14,
   animations: {
-    walk: { file: "walk.png", tag: "W_1", fps: 10, loop: true },
-    idle: { file: "idle.png", tag: "Idle_Tilt_1", fps: 8, loop: true },
-    jump: { file: "jump.png", tag: "Jump_1", fps: 12, loop: false },
+    sit: { tag: "Sit_1", file: "sit.png", fps: 5, loop: true, drawOffsetY: 0 },
+    nap: { tag: "Dream", file: "nap.png", fps: 5, loop: true, drawOffsetY: 2 },
+    walk: { tag: "W_1", file: "walk.png", fps: 9, loop: true, drawOffsetY: 0 },
+    stretch: {
+      tag: "Idle_3",
+      file: "stretch.png",
+      fps: 7,
+      loop: false,
+      drawOffsetY: -4,
+    },
+    look_tilt: {
+      tag: "Idle_Tilt_1",
+      file: "look_tilt.png",
+      fps: 7,
+      loop: false,
+      drawOffsetY: -4,
+    },
+    look_lift: {
+      tag: "Idle_Lift_1",
+      file: "look_lift.png",
+      fps: 7,
+      loop: false,
+      drawOffsetY: -8,
+    },
+    sit_tilt: {
+      tag: "Sit_Tilt_1",
+      file: "sit_tilt.png",
+      fps: 7,
+      loop: false,
+      drawOffsetY: 0,
+    },
+    happy: {
+      tag: "Idle_Yes",
+      file: "happy.png",
+      fps: 8,
+      loop: false,
+      drawOffsetY: -4,
+    },
+    scratch: {
+      tag: "Scratching_Start",
+      file: "scratch.png",
+      fps: 8,
+      loop: false,
+      drawOffsetY: -6,
+    },
+    alert: {
+      tag: "Idle_2",
+      file: "alert.png",
+      fps: 7,
+      loop: false,
+      drawOffsetY: -2,
+    },
   },
 };
 
@@ -122,12 +174,11 @@ async function main() {
   const animations = {};
 
   for (const [key, def] of Object.entries(MANIFEST.animations)) {
-    const tagName = TAG_MAP[key] ?? def.tag;
-    const indices = tagFrameRange(ase, tagName);
+    const indices = tagFrameRange(ase, def.tag);
     const { strip, frameCount } = await exportStrip(ase, indices);
     const outPath = join(outDir, def.file);
     writeFileSync(outPath, strip);
-    console.log(`Wrote ${def.file} (${frameCount} frames, tag ${tagName})`);
+    console.log(`Wrote ${def.file} (${frameCount} frames, tag ${def.tag})`);
 
     animations[key] = {
       file: def.file,
@@ -141,6 +192,13 @@ async function main() {
     frameWidth: MANIFEST.frameWidth,
     frameHeight: MANIFEST.frameHeight,
     scale: MANIFEST.scale,
+    anchor: MANIFEST.anchor,
+    drawOffsetY: MANIFEST.drawOffsetY,
+    feetLiftPx: MANIFEST.feetLiftPx,
+    canvasPadTop: MANIFEST.canvasPadTop,
+    canvasPadBottom: MANIFEST.canvasPadBottom,
+    canvasPadLeft: MANIFEST.canvasPadLeft,
+    canvasPadRight: MANIFEST.canvasPadRight,
     animations,
   };
 

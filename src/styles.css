@@ -10,6 +10,11 @@ body {
 
 #pet {
   display: block;
+  margin: 0;
+  padding: 0;
   cursor: pointer;
   background: transparent;
+  /* Size is set in JS to match canvas backing store — do not scale with CSS */
+  max-width: none;
+  max-height: none;
 }

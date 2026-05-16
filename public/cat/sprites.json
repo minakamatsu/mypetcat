@@ -1,24 +1,73 @@
 {
   "frameWidth": 32,
   "frameHeight": 32,
-  "scale": 2,
+  "scale": 3,
+  "anchor": "bottom",
+  "drawOffsetY": 0,
+  "feetLiftPx": 0,
+  "canvasPadTop": 28,
+  "canvasPadBottom": 8,
+  "canvasPadLeft": 14,
+  "canvasPadRight": 14,
   "animations": {
+    "sit": {
+      "file": "sit.png",
+      "frameCount": 8,
+      "fps": 5,
+      "loop": true
+    },
+    "nap": {
+      "file": "nap.png",
+      "frameCount": 8,
+      "fps": 5,
+      "loop": true
+    },
     "walk": {
       "file": "walk.png",
       "frameCount": 8,
-      "fps": 10,
+      "fps": 9,
       "loop": true
     },
-    "idle": {
-      "file": "idle.png",
+    "stretch": {
+      "file": "stretch.png",
+      "frameCount": 8,
+      "fps": 7,
+      "loop": false
+    },
+    "look_tilt": {
+      "file": "look_tilt.png",
       "frameCount": 4,
-      "fps": 8,
-      "loop": true
+      "fps": 7,
+      "loop": false
     },
-    "jump": {
-      "file": "jump.png",
-      "frameCount": 14,
-      "fps": 12,
+    "look_lift": {
+      "file": "look_lift.png",
+      "frameCount": 4,
+      "fps": 7,
+      "loop": false
+    },
+    "sit_tilt": {
+      "file": "sit_tilt.png",
+      "frameCount": 4,
+      "fps": 7,
+      "loop": false
+    },
+    "happy": {
+      "file": "happy.png",
+      "frameCount": 8,
+      "fps": 8,
+      "loop": false
+    },
+    "scratch": {
+      "file": "scratch.png",
+      "frameCount": 5,
+      "fps": 8,
+      "loop": false
+    },
+    "alert": {
+      "file": "alert.png",
+      "frameCount": 4,
+      "fps": 7,
       "loop": false
     }
   }
