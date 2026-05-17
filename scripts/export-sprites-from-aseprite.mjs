@@ -15,71 +15,31 @@ const outDir = join(root, "public", "cat");
 const MANIFEST = {
   frameWidth: 32,
   frameHeight: 32,
-  scale: 3,
+  scale: 3.5,
   anchor: "bottom",
-  /** Feet line is fixed at canvas bottom; use padTop for tall poses only */
   drawOffsetY: 0,
-  /** Nudge up on screen (source px); keep low so paws are not pushed under the bezel */
   feetLiftPx: 0,
-  canvasPadTop: 28,
-  /** Extra transparent rows below feet (source px) — avoids OS/WebView clipping last rows */
-  canvasPadBottom: 8,
-  /** Side padding so wide poses are not clipped when flipped */
-  canvasPadLeft: 14,
-  canvasPadRight: 14,
+  /** Filled from alpha scan after export — tight box around all frames */
+  canvasPadTop: 2,
+  canvasPadBottom: 5,
+  canvasPadLeft: 2,
+  canvasPadRight: 2,
+  /** Per-animation drawOffsetY removed — all clips align to sit paw line. */
   animations: {
-    sit: { tag: "Sit_1", file: "sit.png", fps: 5, loop: true, drawOffsetY: 0 },
-    nap: { tag: "Dream", file: "nap.png", fps: 5, loop: true, drawOffsetY: 2 },
-    walk: { tag: "W_1", file: "walk.png", fps: 9, loop: true, drawOffsetY: 0 },
-    stretch: {
-      tag: "Idle_3",
-      file: "stretch.png",
-      fps: 7,
-      loop: false,
-      drawOffsetY: -4,
-    },
-    look_tilt: {
-      tag: "Idle_Tilt_1",
-      file: "look_tilt.png",
-      fps: 7,
-      loop: false,
-      drawOffsetY: -4,
-    },
-    look_lift: {
-      tag: "Idle_Lift_1",
-      file: "look_lift.png",
-      fps: 7,
-      loop: false,
-      drawOffsetY: -8,
-    },
-    sit_tilt: {
-      tag: "Sit_Tilt_1",
-      file: "sit_tilt.png",
-      fps: 7,
-      loop: false,
-      drawOffsetY: 0,
-    },
-    happy: {
-      tag: "Idle_Yes",
-      file: "happy.png",
-      fps: 8,
-      loop: false,
-      drawOffsetY: -4,
-    },
-    scratch: {
-      tag: "Scratching_Start",
-      file: "scratch.png",
-      fps: 8,
-      loop: false,
-      drawOffsetY: -6,
-    },
-    alert: {
-      tag: "Idle_2",
-      file: "alert.png",
-      fps: 7,
-      loop: false,
-      drawOffsetY: -2,
-    },
+    sit: { tag: "Sit_1", file: "sit.png", fps: 5, loop: true },
+    nap: { tag: "Dream", file: "nap.png", fps: 5, loop: true },
+    walk: { tag: "W_1", file: "walk.png", fps: 9, loop: true },
+    stretch: { tag: "Idle_3", file: "stretch.png", fps: 7, loop: false },
+    look_tilt: { tag: "Idle_Tilt_1", file: "look_tilt.png", fps: 7, loop: false },
+    look_lift: { tag: "Idle_Lift_1", file: "look_lift.png", fps: 7, loop: false },
+    sit_tilt: { tag: "Sit_Tilt_1", file: "sit_tilt.png", fps: 7, loop: false },
+    happy: { tag: "Idle_Yes", file: "happy.png", fps: 8, loop: false },
+    scratch: { tag: "Scratching_Start", file: "scratch.png", fps: 8, loop: false },
+    alert: { tag: "Idle_2", file: "alert.png", fps: 7, loop: false },
+    hold: { tag: "Sit_Lift_1", file: "hold.png", fps: 8, loop: true },
+    carry: { tag: "Jump_1", file: "carry.png", fps: 10, loop: true },
+    run: { tag: "Run_1", file: "run.png", fps: 12, loop: true },
+    angry: { tag: "Aggress", file: "angry.png", fps: 10, loop: false },
   },
 };
 
@@ -164,6 +124,57 @@ async function exportStrip(ase, frameIndices) {
   return { strip, frameCount: frames.length };
 }
 
+const ALPHA_HIT = 40;
+const BOUNDS_MARGIN = 1;
+
+/** Union opaque bounds across every exported frame (source pixels). */
+async function measureGlobalContentBounds(frameWidth, frameHeight) {
+  const { readdirSync } = await import("node:fs");
+  let minX = frameWidth;
+  let minY = frameHeight;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (const file of readdirSync(outDir).filter((f) => f.endsWith(".png"))) {
+    const path = join(outDir, file);
+    const meta = await sharp(path).metadata();
+    const frameCount = Math.floor(meta.width / frameWidth);
+
+    for (let i = 0; i < frameCount; i++) {
+      const { data, info } = await sharp(path)
+        .extract({
+          left: i * frameWidth,
+          top: 0,
+          width: frameWidth,
+          height: frameHeight,
+        })
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const channels = info.channels;
+      for (let y = 0; y < frameHeight; y++) {
+        for (let x = 0; x < frameWidth; x++) {
+          const a =
+            channels === 4 ? data[(y * frameWidth + x) * 4 + 3] : 255;
+          if (a > ALPHA_HIT) {
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+          }
+        }
+      }
+    }
+  }
+
+  if (maxX < minX) {
+    throw new Error("No opaque pixels found in exported sprites");
+  }
+
+  return { left: minX, top: minY, right: maxX, bottom: maxY };
+}
+
 async function main() {
   const buffer = readFileSync(sourcePath);
   const ase = new Aseprite(buffer, "Cat_Grey.aseprite");
@@ -188,21 +199,43 @@ async function main() {
     };
   }
 
+  const fw = MANIFEST.frameWidth;
+  const fh = MANIFEST.frameHeight;
+  const bounds = await measureGlobalContentBounds(fw, fh);
+  const m = BOUNDS_MARGIN;
+
+  const contentBounds = {
+    left: bounds.left,
+    top: bounds.top,
+    right: bounds.right,
+    // Include a little extra below measured paws (walk frames dip lower).
+    bottom: Math.min(fh - 1, bounds.bottom + 2),
+  };
+
+  const canvasPadLeft = Math.max(0, bounds.left - m);
+  const canvasPadRight = Math.max(0, fw - 1 - bounds.right - m);
+  const canvasPadTop = m;
+  const canvasPadBottom = Math.max(4, fh - 1 - contentBounds.bottom + m);
+
   const manifest = {
-    frameWidth: MANIFEST.frameWidth,
-    frameHeight: MANIFEST.frameHeight,
+    frameWidth: fw,
+    frameHeight: fh,
     scale: MANIFEST.scale,
     anchor: MANIFEST.anchor,
     drawOffsetY: MANIFEST.drawOffsetY,
     feetLiftPx: MANIFEST.feetLiftPx,
-    canvasPadTop: MANIFEST.canvasPadTop,
-    canvasPadBottom: MANIFEST.canvasPadBottom,
-    canvasPadLeft: MANIFEST.canvasPadLeft,
-    canvasPadRight: MANIFEST.canvasPadRight,
+    contentBounds,
+    canvasPadTop,
+    canvasPadBottom,
+    canvasPadLeft,
+    canvasPadRight,
     animations,
   };
 
   writeFileSync(join(outDir, "sprites.json"), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(
+    `Content bounds ${JSON.stringify(contentBounds)} → pads L${canvasPadLeft} R${canvasPadRight} T${canvasPadTop} B${canvasPadBottom}`,
+  );
   console.log("Wrote sprites.json");
 }
 

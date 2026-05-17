@@ -1,14 +1,20 @@
 {
   "frameWidth": 32,
   "frameHeight": 32,
-  "scale": 3,
+  "scale": 3.5,
   "anchor": "bottom",
   "drawOffsetY": 0,
   "feetLiftPx": 0,
-  "canvasPadTop": 28,
-  "canvasPadBottom": 8,
-  "canvasPadLeft": 14,
-  "canvasPadRight": 14,
+  "contentBounds": {
+    "left": 0,
+    "top": 0,
+    "right": 31,
+    "bottom": 31
+  },
+  "canvasPadTop": 1,
+  "canvasPadBottom": 4,
+  "canvasPadLeft": 0,
+  "canvasPadRight": 0,
   "animations": {
     "sit": {
       "file": "sit.png",
@@ -68,6 +74,30 @@
       "file": "alert.png",
       "frameCount": 4,
       "fps": 7,
+      "loop": false
+    },
+    "hold": {
+      "file": "hold.png",
+      "frameCount": 4,
+      "fps": 8,
+      "loop": true
+    },
+    "carry": {
+      "file": "carry.png",
+      "frameCount": 14,
+      "fps": 10,
+      "loop": true
+    },
+    "run": {
+      "file": "run.png",
+      "frameCount": 6,
+      "fps": 12,
+      "loop": true
+    },
+    "angry": {
+      "file": "angry.png",
+      "frameCount": 8,
+      "fps": 10,
       "loop": false
     }
   }

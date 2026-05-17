@@ -6,6 +6,15 @@ declare module "../public/cat/sprites.json" {
     anchor?: "bottom" | "top";
     drawOffsetY?: number;
     canvasPadTop?: number;
+    canvasPadBottom?: number;
+    canvasPadLeft?: number;
+    canvasPadRight?: number;
+    contentBounds?: {
+      left: number;
+      top: number;
+      right: number;
+      bottom: number;
+    };
     animations: Record<
       string,
       {

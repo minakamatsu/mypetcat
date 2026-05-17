@@ -27,8 +27,8 @@ pub struct WorkAreaRect {
 }
 
 #[tauri::command]
-fn get_work_area() -> Result<WorkAreaRect, String> {
-    platform::get_screen_layout()
+fn get_work_area(window: tauri::WebviewWindow) -> Result<WorkAreaRect, String> {
+    platform::get_screen_layout(&window)
         .map(|layout| WorkAreaRect {
             left: layout.work_area.left,
             top: layout.work_area.top,
@@ -39,24 +39,29 @@ fn get_work_area() -> Result<WorkAreaRect, String> {
 }
 
 #[tauri::command]
-fn get_screen_layout() -> Result<ScreenLayout, String> {
-    platform::get_screen_layout().map_err(|e| e.to_string())
+fn get_screen_layout(window: tauri::WebviewWindow) -> Result<ScreenLayout, String> {
+    platform::get_screen_layout(&window).map_err(|e| e.to_string())
 }
 
-/// Re-apply HWND_TOPMOST so the pet stays above the Windows taskbar.
+/// Re-apply always-on-top (Win32 topmost pin on Windows).
 #[tauri::command]
 fn ensure_topmost(window: tauri::WebviewWindow) -> Result<(), String> {
     platform::pin_topmost(&window)
 }
 
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
+}
+
 #[cfg(windows)]
 mod platform {
     use super::{Rect, ScreenLayout};
-    use windows::Win32::Foundation::{POINT, RECT};
+    use tauri::WebviewWindow;
+    use windows::Win32::Foundation::RECT;
     use windows::Win32::Graphics::Gdi::{
-        GetMonitorInfoW, MonitorFromPoint, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
     };
-    use windows::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
 
     fn rect_from_win32(rect: RECT) -> Rect {
         Rect {
@@ -67,41 +72,25 @@ mod platform {
         }
     }
 
-    fn monitor_for_work_area(work_area: Rect) -> Result<Rect, Box<dyn std::error::Error>> {
-        let center = POINT {
-            x: (work_area.left + work_area.right) / 2,
-            y: (work_area.top + work_area.bottom) / 2,
-        };
-
-        let hmon = unsafe { MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST) };
+    pub fn get_screen_layout(
+        window: &WebviewWindow,
+    ) -> Result<ScreenLayout, Box<dyn std::error::Error>> {
+        let hwnd = window.hwnd()?;
+        let hmon = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
         let mut info = MONITORINFO {
             cbSize: std::mem::size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
         let ok = unsafe { GetMonitorInfoW(hmon, &mut info) };
-        if ok.as_bool() {
-            return Ok(rect_from_win32(info.rcMonitor));
+        if !ok.as_bool() {
+            return Err("GetMonitorInfoW failed".into());
         }
 
-        Err("GetMonitorInfoW failed".into())
-    }
-
-    pub fn get_screen_layout() -> Result<ScreenLayout, Box<dyn std::error::Error>> {
-        let mut work_rect = RECT::default();
-        unsafe {
-            SystemParametersInfoW(
-                SPI_GETWORKAREA,
-                0,
-                Some(std::ptr::from_mut(&mut work_rect).cast()),
-                Default::default(),
-            )?;
-        }
-
-        let work_area = rect_from_win32(work_rect);
-        let monitor = monitor_for_work_area(work_area)?;
+        let monitor = rect_from_win32(info.rcMonitor);
+        let work_area = rect_from_win32(info.rcWork);
         let taskbar_height = (monitor.bottom - work_area.bottom).max(0);
-        // Feet on the physical bottom of the screen (pet walks over the taskbar).
-        let feet_y = monitor.bottom;
+        // Sit on the desktop, not under the taskbar.
+        let feet_y = work_area.bottom;
 
         Ok(ScreenLayout {
             work_area,
@@ -111,38 +100,95 @@ mod platform {
         })
     }
 
-    pub fn pin_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
+    pub fn pin_topmost(window: &WebviewWindow) -> Result<(), String> {
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+            SetWindowPos, HWND_NOTOPMOST, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_SHOWWINDOW,
         };
 
-        window
-            .set_always_on_top(true)
-            .map_err(|e| e.to_string())?;
+        window.set_always_on_top(true).map_err(|e| e.to_string())?;
 
         let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW;
         unsafe {
-            SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-            )
-            .map_err(|e| e.to_string())?;
+            // Re-toggle topmost so we stack above the Windows 11 taskbar layer.
+            let _ = SetWindowPos(hwnd, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
+            SetWindowPos(hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, flags)
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(())
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
 mod platform {
     use super::{Rect, ScreenLayout};
+    use tauri::WebviewWindow;
 
-    pub fn get_screen_layout() -> Result<ScreenLayout, Box<dyn std::error::Error>> {
+    fn monitor_bounds(m: &tauri::Monitor) -> Rect {
+        let pos = m.position();
+        let size = m.size();
+        Rect {
+            left: pos.x,
+            top: pos.y,
+            right: pos.x + size.width as i32,
+            bottom: pos.y + size.height as i32,
+        }
+    }
+
+    fn work_area_bounds(m: &tauri::Monitor) -> Rect {
+        let work = m.work_area();
+        let pos = work.position;
+        let size = work.size;
+        Rect {
+            left: pos.x,
+            top: pos.y,
+            right: pos.x + size.width as i32,
+            bottom: pos.y + size.height as i32,
+        }
+    }
+
+    fn primary_monitor(window: &WebviewWindow) -> Result<tauri::Monitor, Box<dyn std::error::Error>> {
+        if let Some(m) = window.current_monitor()? {
+            return Ok(m);
+        }
+        if let Some(m) = window.primary_monitor()? {
+            return Ok(m);
+        }
+        Err("No display found".into())
+    }
+
+    pub fn get_screen_layout(
+        window: &WebviewWindow,
+    ) -> Result<ScreenLayout, Box<dyn std::error::Error>> {
+        let handle = primary_monitor(window)?;
+        let monitor = monitor_bounds(&handle);
+        let work_area = work_area_bounds(&handle);
+        let taskbar_height = (monitor.bottom - work_area.bottom).max(0);
+        let feet_y = work_area.bottom;
+
+        Ok(ScreenLayout {
+            work_area,
+            monitor,
+            taskbar_height,
+            feet_y,
+        })
+    }
+
+    pub fn pin_topmost(window: &WebviewWindow) -> Result<(), String> {
+        window.set_always_on_top(true).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(all(not(windows), not(target_os = "macos")))]
+mod platform {
+    use super::{Rect, ScreenLayout};
+    use tauri::WebviewWindow;
+
+    pub fn get_screen_layout(
+        _window: &WebviewWindow,
+    ) -> Result<ScreenLayout, Box<dyn std::error::Error>> {
         let work_area = Rect {
             left: 0,
             top: 0,
@@ -159,22 +205,109 @@ mod platform {
             work_area,
             monitor,
             taskbar_height: monitor.bottom - work_area.bottom,
-            feet_y: monitor.bottom,
+            feet_y: work_area.bottom,
         })
     }
 
-    pub fn pin_topmost(window: &tauri::WebviewWindow) -> Result<(), String> {
-        window
-            .set_always_on_top(true)
-            .map_err(|e| e.to_string())
+    pub fn pin_topmost(window: &WebviewWindow) -> Result<(), String> {
+        window.set_always_on_top(true).map_err(|e| e.to_string())
     }
+}
+
+#[cfg(windows)]
+fn lock_file_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("com.minna.desktop-cat.lock")
+}
+
+#[cfg(windows)]
+fn pid_is_running(pid: u32) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::{OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION};
+
+    if pid == 0 {
+        return false;
+    }
+
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let _ = CloseHandle(handle);
+        true
+    }
+}
+
+#[cfg(windows)]
+fn remove_lock_file() {
+    let _ = std::fs::remove_file(lock_file_path());
+}
+
+#[cfg(windows)]
+fn already_running_message(pid: &str) -> String {
+    format!(
+        "Desktop Cat is already running (pid {pid}).\n\
+         - Tray (near clock): right-click Desktop Cat -> Quit\n\
+         - Or from desktop-cat folder: npm run dev:stop\n\
+         Then run: npm run tauri dev"
+    )
+}
+
+#[cfg(windows)]
+fn ensure_single_instance() -> Result<(), String> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let path = lock_file_path();
+
+    if path.exists() {
+        let stale = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .is_none_or(|pid| !pid_is_running(pid));
+        if stale {
+            let _ = std::fs::remove_file(&path);
+        } else {
+            let pid = std::fs::read_to_string(&path)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".into());
+            return Err(already_running_message(&pid));
+        }
+    }
+
+    match OpenOptions::new().write(true).create_new(true).open(&path) {
+        Ok(mut file) => {
+            let _ = writeln!(file, "{}", std::process::id());
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let pid = std::fs::read_to_string(&path)
+                .ok()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".into());
+            Err(already_running_message(&pid))
+        }
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_single_instance() -> Result<(), String> {
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Err(msg) = ensure_single_instance() {
+        eprintln!("{msg}");
+        std::process::exit(1);
+    }
+
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_background_color(Some(tauri::window::Color(0, 0, 0, 0)));
                 let _ = platform::pin_topmost(&window);
             }
             Ok(())
@@ -182,8 +315,15 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_work_area,
             get_screen_layout,
-            ensure_topmost
+            ensure_topmost,
+            quit_app
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, event| {
+            #[cfg(windows)]
+            if matches!(event, tauri::RunEvent::Exit) {
+                remove_lock_file();
+            }
+        });
 }

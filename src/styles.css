@@ -12,9 +12,109 @@ body {
   display: block;
   margin: 0;
   padding: 0;
-  cursor: pointer;
+  cursor: grab;
   background: transparent;
-  /* Size is set in JS to match canvas backing store — do not scale with CSS */
   max-width: none;
   max-height: none;
+}
+
+#pet:active {
+  cursor: grabbing;
+}
+
+#settings-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 10000;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  pointer-events: auto;
+}
+
+#settings-panel[hidden] {
+  display: none;
+}
+
+.settings-card {
+  background: rgba(28, 28, 32, 0.94);
+  color: #f2f2f2;
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 220px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.settings-card h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.settings-row-count {
+  grid-template-columns: 1fr auto;
+}
+
+.settings-row-count .settings-stepper {
+  grid-column: 1 / -1;
+}
+
+.settings-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-stepper input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-step-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f2f2f2;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-step-btn:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.settings-hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+#cat-count-apply {
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #6b8cce;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#cat-count-apply:hover {
+  background: #7a9ad8;
 }

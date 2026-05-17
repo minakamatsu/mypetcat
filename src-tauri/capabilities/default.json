@@ -9,6 +9,15 @@
     "core:window:allow-set-size",
     "core:window:allow-set-resizable",
     "core:window:allow-show",
-    "core:window:allow-set-always-on-top"
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-cursor-position",
+    "core:window:allow-set-background-color",
+    "core:window:allow-current-monitor",
+    "core:window:allow-primary-monitor",
+    "autostart:default",
+    "core:tray:default",
+    "core:menu:default",
+    "core:image:default"
   ]
 }

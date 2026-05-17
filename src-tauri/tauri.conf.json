@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run sprites && npm run build",
+    "beforeBuildCommand": "npm run sprites && npm run icons && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "Desktop Cat",
-        "width": 180,
-        "height": 204,
+        "width": 96,
+        "height": 72,
         "resizable": false,
         "decorations": false,
         "transparent": true,
@@ -33,6 +33,17 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "Desktop Cat",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": null,
+        "sidebarImage": null
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

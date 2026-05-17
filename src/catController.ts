@@ -21,9 +21,17 @@ export type FlourishAnim =
   | "sit_tilt"
   | "happy"
   | "scratch"
-  | "alert";
+  | "alert"
+  | "angry";
 
-type Mode = "dormant" | "walking" | "acting" | "interacting";
+type Mode =
+  | "intro"
+  | "dormant"
+  | "walking"
+  | "acting"
+  | "interacting"
+  | "dragging"
+  | "falling";
 type PendingKind = "walk" | "stretch" | "alert" | "pose" | "goHome" | "act";
 type HomeZone = "center" | "midLeft" | "midRight";
 
@@ -129,31 +137,7 @@ const SLEEP_MICRO_FLOURISH: { value: FlourishAnim; weight: number }[] = [
   { value: "look_tilt", weight: 26 },
 ];
 
-function randBetween(min: number, max: number): number {
-  return min + Math.random() * (max - min);
-}
-
-function pick<T>(items: readonly T[]): T {
-  return items[Math.floor(Math.random() * items.length)]!;
-}
-
-function weightedPick<T extends string>(
-  entries: { value: T; weight: number }[],
-): T {
-  const total = entries.reduce((sum, e) => sum + e.weight, 0);
-  let roll = Math.random() * total;
-  for (const entry of entries) {
-    roll -= entry.weight;
-    if (roll <= 0) {
-      return entry.value;
-    }
-  }
-  return entries[entries.length - 1]!.value;
-}
-
-function pickFlourish(): FlourishAnim {
-  return weightedPick(FLOURISH_WEIGHTS);
-}
+import type { CatRng } from "./rng";
 
 function plannerWeightsFor(
   mood: PlannerMood,
@@ -172,9 +156,9 @@ function plannerWeightsFor(
   }
 }
 
-function clicksToWakeRoll(): number {
-  return 1 + Math.floor(Math.random() * 4);
-}
+const INTRO_SIT_CHANCE = 0.38;
+const FALL_GRAVITY = 2800;
+const FALL_MAX_VY = 2200;
 
 /** After this many qualifying petting clicks (not nap pokes), the cat goes on a long roam. */
 const BURST_WALK_AFTER_CLICKS = 8;
@@ -182,23 +166,38 @@ const BURST_WALK_AFTER_CLICKS = 8;
 const BURST_WALK_DISTANCE_MULT_MIN = 1.12;
 const BURST_WALK_DISTANCE_MULT_MAX = 4.65;
 
+/** Per-cat walk/roam speed multiplier (subtle spread around baseline). */
+const SPEED_TRAIT_MIN = 0.9;
+const SPEED_TRAIT_MAX = 1.1;
+/** Extra spread while `currentAnim === "run"` (chase, emotion sprints). */
+const RUN_TRAIT_MIN = 0.92;
+const RUN_TRAIT_MAX = 1.08;
+
 export class CatController {
   direction: 1 | -1 = 1;
   x = 0;
   y = 0;
 
-  private mode: Mode = "dormant";
+  private mode: Mode = "intro";
   private currentAnim: string = "sit";
-  private actionTimer = randBetween(16, 32);
+  private actionTimer = 0;
+  private introSecondsLeft = 0;
+  private fallVelocityY = 0;
+  private dragGrabOffsetY = 0;
   private walkRemaining = 0;
   private walkEase = 0;
   private walkPurpose: WalkPurpose = "roam";
   private walkTargetX: number | null = null;
   private readonly walkSpeed: number;
-  private readonly petWidthPhysical: number;
-  private readonly petHeightPhysical: number;
-  private readonly feetLiftPhysical: number;
-  private readonly padBottomPhysical: number;
+  /** Per-cat pace (walk + run base). */
+  private readonly speedTrait: number;
+  /** Extra variance when using the run sprite. */
+  private readonly runTrait: number;
+  /** Sprite draw box (manifest scale), matches canvas pixel space 1:1. */
+  private readonly petDrawWidth: number;
+  /** Paws sit this many px below the box top-left. */
+  private readonly feetOffsetPx: number;
+  private readonly feetLiftPx: number;
   private pending: PendingKind | null = null;
   private pendingTimer = 0;
   private lastSpecialAt = -MIN_SPECIAL_GAP_SEC;
@@ -214,28 +213,162 @@ export class CatController {
   private energySessionSecondsRemaining = 0;
   /** Running count toward `startBurstWalk` (ignored for nap poke-to-wake). */
   private pettingBurstClickCount = 0;
+  private socialLocked = false;
+  private socialAwaitFinish = false;
+  private personalityLocked = false;
+  private personalityAwaitFinish = false;
+  /** Faster roam while `currentAnim === "run"`. */
+  private walkSpeedBoost = 1;
+  private readonly rng: CatRng;
 
   constructor(
     private layout: ScreenLayout,
     petWidth: number,
-    petHeight: number,
-    /** Lift in canvas/logical px (scaled to physical for positioning). */
+    _petHeight: number,
+    feetOffsetPx: number,
+    rng: CatRng,
     feetLiftPx = 0,
-    /** Window monitor scale (physical ÷ logical). Win32 coords are physical. */
+    /** Window monitor scale — used for walk speed only. */
     private readonly displayScale = 1,
-    /** Transparent pad below sprite (logical * scaleFactor) — keeps paws on-screen */
-    padBottomPxLogical = 0,
   ) {
-    this.padBottomPhysical = Math.round(padBottomPxLogical * displayScale);
-    this.petWidthPhysical = Math.round(petWidth * displayScale);
-    this.petHeightPhysical = Math.round(petHeight * displayScale);
-    this.feetLiftPhysical = Math.round(feetLiftPx * displayScale);
-    this.walkSpeed = 68 * displayScale;
+    this.rng = rng;
+    this.petDrawWidth = Math.round(petWidth);
+    this.feetOffsetPx = Math.round(feetOffsetPx);
+    this.feetLiftPx = Math.round(feetLiftPx);
+    this.speedTrait = this.rb(SPEED_TRAIT_MIN, SPEED_TRAIT_MAX);
+    this.runTrait = this.rb(RUN_TRAIT_MIN, RUN_TRAIT_MAX);
+    this.walkSpeed = (58 + this.rb(0, 18)) * displayScale;
+    this.actionTimer = this.rb(14, 38);
     this.y = this.anchorY();
-    this.pickHomeSpot();
-    this.x = this.homeX;
-    this.pickDormantPose();
     this.rollEnergySession();
+    this.energySessionSecondsRemaining += this.rb(0, 90);
+    this.lastSpecialAt = -MIN_SPECIAL_GAP_SEC + this.rb(0, MIN_SPECIAL_GAP_SEC);
+    this.beginIntro();
+  }
+
+  private rb(min: number, max: number): number {
+    return this.rng.randBetween(min, max);
+  }
+
+  private wp<T extends string>(
+    entries: { value: T; weight: number }[],
+  ): T {
+    return this.rng.weightedPick(entries);
+  }
+
+  private pk<T>(items: readonly T[]): T {
+    return this.rng.pick(items);
+  }
+
+  isDragging(): boolean {
+    return this.mode === "dragging";
+  }
+
+  isFalling(): boolean {
+    return this.mode === "falling";
+  }
+
+  needsPhysicsUpdate(): boolean {
+    return this.mode === "dragging" || this.mode === "falling";
+  }
+
+  beginDrag(canvasX: number, canvasY: number): void {
+    this.clearPending();
+    this.mode = "dragging";
+    this.currentAnim = "sit";
+    this.animHardRestart = true;
+    this.dragGrabOffsetY = canvasY - this.y;
+    this.x = canvasX - this.petDrawWidth / 2;
+    this.clampX();
+  }
+
+  dragTo(canvasX: number, canvasY: number): void {
+    if (this.mode !== "dragging") {
+      return;
+    }
+    this.x = canvasX - this.petDrawWidth / 2;
+    this.y = canvasY - this.dragGrabOffsetY;
+    this.clampX();
+  }
+
+  endDrag(): void {
+    if (this.mode !== "dragging") {
+      return;
+    }
+    const floor = this.anchorY();
+    if (this.y >= floor - 2) {
+      this.y = floor;
+      this.enterDormant();
+      return;
+    }
+    this.mode = "falling";
+    this.fallVelocityY = 0;
+    this.currentAnim = "walk";
+  }
+
+  private beginIntro(): void {
+    this.introSecondsLeft = this.rb(1.85, 3.15);
+    this.pickHomeSpot();
+    this.x = this.pickIntroSpawnX();
+
+    if (this.rng.chance(INTRO_SIT_CHANCE)) {
+      this.mode = "intro";
+      this.currentAnim = "sit";
+      this.homeX = this.x;
+      return;
+    }
+
+    this.mode = "intro";
+    this.currentAnim = "walk";
+    this.walkPurpose = "home";
+    this.walkTargetX = this.homeX;
+    this.walkEase = 0;
+    this.walkRemaining = 0;
+    this.direction = this.x < this.homeX ? 1 : -1;
+  }
+
+  /** Start near the middle of the screen so the cat is easy to spot. */
+  private pickIntroSpawnX(): number {
+    const { minX, maxX } = this.travelXBounds();
+    const span = Math.max(8, maxX - minX);
+    const center = minX + span * 0.5 - this.petDrawWidth * 0.5;
+    return Math.max(minX, Math.min(maxX, center + this.rb(-span * 0.08, span * 0.08)));
+  }
+
+  private updateIntro(deltaSeconds: number): void {
+    this.introSecondsLeft -= deltaSeconds;
+
+    if (this.currentAnim === "walk" && this.walkTargetX != null) {
+      const prev = this.mode;
+      this.mode = "walking";
+      this.updateWalk(deltaSeconds);
+      this.mode = prev;
+    }
+
+    const nearHome =
+      Math.abs(this.x - this.homeX) < Math.max(8, 6 * this.displayScale);
+    if (this.introSecondsLeft <= 0 || (this.currentAnim === "walk" && nearHome)) {
+      this.enterDormant();
+    }
+  }
+
+  private updateFall(deltaSeconds: number): void {
+    const floor = this.anchorY();
+    this.fallVelocityY = Math.min(
+      FALL_MAX_VY,
+      this.fallVelocityY + FALL_GRAVITY * deltaSeconds,
+    );
+    this.y += this.fallVelocityY * deltaSeconds;
+
+    if (this.y >= floor) {
+      this.y = floor;
+      this.fallVelocityY = 0;
+      this.mode = "dormant";
+      this.currentAnim = "sit";
+      this.animHardRestart = true;
+      this.pickHomeSpot();
+      this.homeX = this.x;
+    }
   }
 
   /** Read-only peek for UX/debug */
@@ -245,6 +378,16 @@ export class CatController {
 
   setLayout(layout: ScreenLayout): void {
     this.layout = layout;
+    if (this.mode !== "dragging" && this.mode !== "falling") {
+      this.y = this.anchorY();
+    }
+    this.clampX();
+  }
+
+  snapToFloor(): void {
+    if (this.mode === "dragging" || this.mode === "falling") {
+      return;
+    }
     this.y = this.anchorY();
     this.clampX();
   }
@@ -265,9 +408,10 @@ export class CatController {
     );
   }
 
-  onClick(): void {
+  /** `nap_wake` when a deep nap ends from clicking. */
+  onClick(): "nap_wake" | undefined {
     if (this.mode === "interacting") {
-      return;
+      return undefined;
     }
     this.clearPending();
     this.walkPurpose = "roam";
@@ -276,28 +420,29 @@ export class CatController {
     if (this.sleepingDeeplyIdle()) {
       this.napWakeClicksUsed++;
       if (this.napWakeClicksUsed < this.napWakeClicksNeeded) {
-        return;
+        return undefined;
       }
       this.napWakeClicksUsed = 0;
-      this.playfulSeconds += randBetween(28, 52);
+      this.playfulSeconds += this.rb(28, 52);
       this.mode = "dormant";
       this.currentAnim = "sit";
       this.animHardRestart = true;
-      return;
+      return "nap_wake";
     }
 
     this.pettingBurstClickCount++;
     if (this.pettingBurstClickCount >= BURST_WALK_AFTER_CLICKS) {
       this.pettingBurstClickCount = 0;
       this.startBurstWalk();
-      return;
+      return undefined;
     }
 
     this.mode = "interacting";
-    this.currentAnim = weightedPick(CLICK_REACTION_WEIGHTS);
+    this.currentAnim = this.wp(CLICK_REACTION_WEIGHTS);
     this.walkRemaining = 0;
     this.walkEase = 0;
     this.animHardRestart = true;
+    return undefined;
   }
 
   plannerMood(): PlannerMood {
@@ -330,6 +475,22 @@ export class CatController {
   }
 
   update(deltaSeconds: number, animationFinished: boolean): void {
+    if (this.mode === "dragging") {
+      return;
+    }
+    if (this.mode === "falling") {
+      this.updateFall(deltaSeconds);
+      return;
+    }
+    if (this.mode === "intro") {
+      this.updateIntro(deltaSeconds);
+      return;
+    }
+
+    if (this.socialLocked || this.personalityLocked) {
+      return;
+    }
+
     if (this.pending) {
       this.pendingTimer -= deltaSeconds;
       if (this.pendingTimer <= 0) {
@@ -340,14 +501,14 @@ export class CatController {
 
     if (this.mode === "interacting") {
       if (animationFinished) {
-        this.queueReturnToDormant(randBetween(0.35, 0.75));
+        this.queueReturnToDormant(this.rb(0.35, 0.75));
       }
       return;
     }
 
     if (this.mode === "acting") {
       if (animationFinished) {
-        this.queueReturnToDormant(randBetween(0.5, 1.1));
+        this.queueReturnToDormant(this.rb(0.5, 1.1));
       }
       return;
     }
@@ -382,26 +543,243 @@ export class CatController {
     return { x: Math.round(this.x), y: Math.round(this.y) };
   }
 
+  getWidth(): number {
+    return this.petDrawWidth;
+  }
+
+  isSocialLocked(): boolean {
+    return this.socialLocked;
+  }
+
+  canJoinSocial(): boolean {
+    if (this.socialLocked || this.personalityLocked) {
+      return false;
+    }
+    if (this.mode !== "dormant" && this.mode !== "walking") {
+      return false;
+    }
+    return this.pending === null;
+  }
+
+  isPersonalityLocked(): boolean {
+    return this.personalityLocked;
+  }
+
+  setPersonalityLock(locked: boolean): void {
+    if (locked) {
+      this.clearPending();
+      this.personalityLocked = true;
+    } else {
+      this.personalityLocked = false;
+    }
+  }
+
+  playPersonalityAnim(anim: string, loop = false): void {
+    this.clearPending();
+    this.mode = "acting";
+    this.currentAnim = anim;
+    this.animHardRestart = true;
+    this.personalityAwaitFinish = !loop;
+  }
+
+  isPersonalityClipDone(): boolean {
+    return !this.personalityAwaitFinish;
+  }
+
+  updateWhilePersonality(
+    _deltaSeconds: number,
+    animationFinished: boolean,
+  ): void {
+    if (
+      this.mode === "acting" &&
+      animationFinished &&
+      this.personalityAwaitFinish
+    ) {
+      this.personalityAwaitFinish = false;
+    }
+    if (this.mode === "walking") {
+      this.updateWalk(_deltaSeconds);
+    }
+  }
+
+  startPersonalityRun(): void {
+    this.clearPending();
+    this.mode = "walking";
+    this.currentAnim = "run";
+    this.walkPurpose = "roam";
+    this.walkTargetX = null;
+    const { minX, maxX } = this.travelXBounds();
+    const span = Math.max(80 * this.displayScale, maxX - minX);
+    this.direction = this.rng.chance(0.5) ? 1 : -1;
+    const mult = this.rb(1.35, 2.85);
+    this.walkRemaining = span * mult;
+    this.walkEase = 0;
+    this.walkSpeedBoost = 1.62;
+    this.animHardRestart = true;
+  }
+
+  startPersonalityWalk(short = false): void {
+    this.clearPending();
+    this.mode = "walking";
+    this.currentAnim = "walk";
+    this.walkPurpose = "roam";
+    this.walkTargetX = null;
+    const { minX, maxX } = this.travelXBounds();
+    const span = maxX - minX;
+    this.direction = this.x < minX + span * 0.5 ? 1 : -1;
+    this.walkRemaining = this.rb(
+      span * (short ? 0.22 : 0.38),
+      span * (short ? 0.48 : 0.72),
+    );
+    this.walkEase = 0;
+    this.walkSpeedBoost = 1;
+    this.animHardRestart = true;
+  }
+
+  enterPersonalityPose(anim: string): void {
+    this.clearPending();
+    this.mode = "dormant";
+    this.currentAnim = anim;
+    this.animHardRestart = true;
+    this.personalityAwaitFinish = false;
+  }
+
+  isWalking(): boolean {
+    return this.mode === "walking";
+  }
+
+  finishPersonalityEpisode(): void {
+    this.personalityAwaitFinish = false;
+    this.walkSpeedBoost = 1;
+    this.walkTargetX = null;
+    this.walkPurpose = "roam";
+    this.enterDormant();
+  }
+
+  isNapping(): boolean {
+    return this.sleepingDeeplyIdle();
+  }
+
+  setSocialLock(locked: boolean): void {
+    if (locked) {
+      this.clearPending();
+      this.socialLocked = true;
+    } else {
+      this.socialLocked = false;
+    }
+  }
+
+  faceToward(otherCenterX: number): void {
+    const myCenter = this.x + this.petDrawWidth / 2;
+    this.direction = otherCenterX >= myCenter ? 1 : -1;
+  }
+
+  playSocialFlourish(anim: FlourishAnim): void {
+    this.clearPending();
+    this.mode = "acting";
+    this.currentAnim = anim;
+    this.animHardRestart = true;
+    this.socialAwaitFinish = true;
+  }
+
+  isSocialClipDone(): boolean {
+    return !this.socialAwaitFinish;
+  }
+
+  updateWhileSocial(
+    _deltaSeconds: number,
+    animationFinished: boolean,
+  ): void {
+    if (this.mode === "acting" && animationFinished && this.socialAwaitFinish) {
+      this.socialAwaitFinish = false;
+    }
+  }
+
+  updateSocialWalk(deltaSeconds: number): void {
+    if (this.mode === "walking") {
+      this.updateWalk(deltaSeconds);
+    }
+  }
+
+  startChaseToward(targetCenterX: number, sprint = false): void {
+    const { minX, maxX } = this.travelXBounds();
+    const target = Math.max(
+      minX,
+      Math.min(maxX, targetCenterX - this.petDrawWidth / 2),
+    );
+    this.mode = "walking";
+    this.currentAnim = sprint ? "run" : "walk";
+    this.walkSpeedBoost = sprint ? 1.48 : 1;
+    this.walkPurpose = "home";
+    this.walkTargetX = target;
+    this.walkRemaining = 0;
+    this.walkEase = 1;
+    this.direction = target > this.x ? 1 : -1;
+    this.animHardRestart = true;
+  }
+
+  startChaseFleeFrom(chaserCenterX: number, sprint = false): void {
+    const myCenter = this.x + this.petDrawWidth / 2;
+    const fleeDir: 1 | -1 = myCenter >= chaserCenterX ? 1 : -1;
+    const { minX, maxX } = this.travelXBounds();
+    const span = maxX - minX;
+    let target = this.x + fleeDir * span * 0.32;
+    target = Math.max(minX, Math.min(maxX, target));
+    this.mode = "walking";
+    this.currentAnim = sprint ? "run" : "walk";
+    this.walkSpeedBoost = sprint ? 1.42 : 1;
+    this.walkPurpose = "home";
+    this.walkTargetX = target;
+    this.walkRemaining = 0;
+    this.walkEase = 1;
+    this.direction = fleeDir;
+    this.animHardRestart = true;
+  }
+
+  prepareSocialWake(): void {
+    // Sleeper stays on nap until `completeSocialWake`.
+  }
+
+  completeSocialWake(): void {
+    this.napWakeClicksUsed = this.napWakeClicksNeeded;
+    this.playfulSeconds += this.rb(22, 44);
+    this.mode = "dormant";
+    this.currentAnim = "sit";
+    this.animHardRestart = true;
+  }
+
+  finishSocial(): void {
+    this.socialAwaitFinish = false;
+    this.walkTargetX = null;
+    this.walkPurpose = "roam";
+    this.enterDormant();
+  }
+
   private rollEnergySession(): void {
-    this.energyTier = weightedPick([
+    this.energyTier = this.wp([
       { value: "tired", weight: 26 },
       { value: "normal", weight: 46 },
       { value: "wired", weight: 28 },
     ]);
-    this.energySessionSecondsRemaining = randBetween(120, 280);
+    this.energySessionSecondsRemaining = this.rb(120, 280);
   }
 
+  /** Bottom of the full monitor overlay (= screen floor). */
+  private floorCanvasY(): number {
+    return this.layout.monitor.bottom - this.layout.monitor.top;
+  }
+
+  private canvasWidth(): number {
+    return this.layout.monitor.right - this.layout.monitor.left;
+  }
+
+  /** Top-left Y so the paws sit on the monitor bottom edge. */
   private anchorY(): number {
-    return (
-      this.layout.feet_y -
-      this.petHeightPhysical -
-      this.feetLiftPhysical +
-      this.padBottomPhysical
-    );
+    return this.floorCanvasY() - this.feetOffsetPx - this.feetLiftPx;
   }
 
   private pickHomeSpot(): void {
-    this.homeZone = weightedPick([
+    this.homeZone = this.wp([
       { value: "center", weight: 52 },
       { value: "midLeft", weight: 24 },
       { value: "midRight", weight: 24 },
@@ -412,13 +790,13 @@ export class CatController {
 
     switch (this.homeZone) {
       case "center":
-        this.homeX = minX + span * randBetween(0.44, 0.56);
+        this.homeX = minX + span * this.rb(0.44, 0.56);
         break;
       case "midLeft":
-        this.homeX = minX + span * randBetween(0.22, 0.36);
+        this.homeX = minX + span * this.rb(0.22, 0.36);
         break;
       case "midRight":
-        this.homeX = minX + span * randBetween(0.64, 0.78);
+        this.homeX = minX + span * this.rb(0.64, 0.78);
         break;
     }
   }
@@ -492,9 +870,9 @@ export class CatController {
     else if (this.energyTier === "wired") napChance = 0.18;
     else if (this.energyTier === "normal") napChance = 0.48;
 
-    this.currentAnim = Math.random() < napChance ? "nap" : "sit";
+    this.currentAnim = this.rng.chance(napChance) ? "nap" : "sit";
     if (this.currentAnim === "nap") {
-      this.napWakeClicksNeeded = clicksToWakeRoll();
+      this.napWakeClicksNeeded = 1 + Math.floor(this.rb(0, 4));
       this.napWakeClicksUsed = 0;
     } else {
       this.napWakeClicksNeeded = 0;
@@ -505,29 +883,29 @@ export class CatController {
   private nextPlannerDelay(): number {
     const mood = this.plannerMood();
     if (mood === "sleeping") {
-      return randBetween(42, 82);
+      return this.rb(42, 82);
     }
     if (mood === "wired") {
-      return randBetween(8, 20);
+      return this.rb(8, 20);
     }
     if (mood === "playful") {
-      return randBetween(11, 26);
+      return this.rb(11, 26);
     }
     if (mood === "tired") {
-      return randBetween(38, 76);
+      return this.rb(38, 76);
     }
-    return randBetween(16, 42);
+    return this.rb(16, 42);
   }
 
   private scheduleFlourishForMood(): void {
     if (this.plannerMood() === "sleeping") {
       this.scheduleAct(
-        weightedPick(SLEEP_MICRO_FLOURISH),
-        randBetween(0.5, 1.15),
+        this.wp(SLEEP_MICRO_FLOURISH),
+        this.rb(0.5, 1.15),
       );
       return;
     }
-    this.scheduleAct(pickFlourish(), randBetween(0.15, 0.58));
+    this.scheduleAct(this.wp(FLOURISH_WEIGHTS), this.rb(0.15, 0.58));
   }
 
   private pickPlanKind(): PlanKind {
@@ -565,7 +943,7 @@ export class CatController {
     if (nonzero.length === 0) {
       return "stay";
     }
-    return weightedPick(nonzero);
+    return this.wp(nonzero);
   }
 
   private startWalk(): void {
@@ -576,7 +954,7 @@ export class CatController {
     const { minX, maxX } = this.travelXBounds();
     const span = maxX - minX;
     this.direction = this.x < minX + span * 0.5 ? 1 : -1;
-    this.walkRemaining = randBetween(span * 0.45, span * 0.95);
+    this.walkRemaining = this.rb(span * 0.45, span * 0.95);
     this.walkEase = 0;
   }
 
@@ -588,8 +966,8 @@ export class CatController {
     this.walkTargetX = null;
     const { minX, maxX } = this.travelXBounds();
     const span = Math.max(80 * this.displayScale, maxX - minX);
-    this.direction = Math.random() < 0.5 ? 1 : -1;
-    const mult = randBetween(
+    this.direction = this.rng.chance(0.5) ? 1 : -1;
+    const mult = this.rb(
       BURST_WALK_DISTANCE_MULT_MIN,
       BURST_WALK_DISTANCE_MULT_MAX,
     );
@@ -599,7 +977,7 @@ export class CatController {
   }
 
   private startWalkTowardHome(): void {
-    if (Math.random() < 0.12) {
+    if (this.rng.chance(0.12)) {
       this.pickHomeSpot();
     }
     const { minX, maxX } = this.travelXBounds();
@@ -642,7 +1020,7 @@ export class CatController {
     switch (choice) {
       case "stay":
         this.pending = "pose";
-        this.pendingTimer = randBetween(
+        this.pendingTimer = this.rb(
           this.sleepingDeeplyIdle() ? 0.55 : 0.22,
           this.sleepingDeeplyIdle() ? 1.5 : 0.95,
         );
@@ -652,25 +1030,38 @@ export class CatController {
         break;
       case "goHome":
         this.pending = "goHome";
-        this.pendingTimer = randBetween(0.2, 0.5);
+        this.pendingTimer = this.rb(0.2, 0.5);
         this.currentAnim = "sit";
         break;
       case "walk":
         this.pending = "walk";
-        this.pendingTimer = randBetween(0.5, 1.4);
+        this.pendingTimer = this.rb(0.5, 1.4);
         this.currentAnim = "sit";
         break;
       case "stretch":
         this.pending = "stretch";
-        this.pendingTimer = randBetween(0.4, 1.0);
+        this.pendingTimer = this.rb(0.4, 1.0);
         this.currentAnim = "sit";
         break;
       case "alert":
         this.pending = "alert";
-        this.pendingTimer = randBetween(0.35, 0.9);
+        this.pendingTimer = this.rb(0.35, 0.9);
         this.currentAnim = "sit";
         break;
     }
+  }
+
+  /** Horizontal speed for walk/run (px/s), including per-cat traits. */
+  private locomotionSpeed(ease: number): number {
+    let speed =
+      this.walkSpeed *
+      this.walkSpeedBoost *
+      this.speedTrait *
+      Math.max(0.15, ease);
+    if (this.currentAnim === "run") {
+      speed *= this.runTrait;
+    }
+    return speed;
   }
 
   private updateWalk(deltaSeconds: number): void {
@@ -683,8 +1074,6 @@ export class CatController {
 
     let ease = this.walkEase;
 
-    const speedFactor = (): number => this.walkSpeed * Math.max(0.15, ease);
-
     if (this.walkPurpose === "home" && this.walkTargetX != null) {
       const tgt = this.walkTargetX;
       const dx = tgt - this.x;
@@ -695,7 +1084,7 @@ export class CatController {
         return;
       }
       this.direction = dx > 0 ? 1 : -1;
-      const speed = speedFactor();
+      const speed = this.locomotionSpeed(ease);
       const step = this.direction * speed * deltaSeconds;
       const nextX = this.x + step;
       if (
@@ -716,7 +1105,7 @@ export class CatController {
       ease = Math.min(ease, this.walkRemaining / endDistance);
     }
 
-    const speed = this.walkSpeed * Math.max(0.15, ease);
+    const speed = this.locomotionSpeed(ease);
     this.x += this.direction * speed * deltaSeconds;
     this.walkRemaining -= speed * deltaSeconds;
     this.clampX();
@@ -733,33 +1122,39 @@ export class CatController {
 
     if (this.walkRemaining <= 0) {
       this.walkEase = 0;
+      this.walkSpeedBoost = 1;
       this.mode = "dormant";
-      if (Math.random() < 0.24) {
-        this.scheduleAct(pick(WALK_ARRIVAL_FLOURISH), randBetween(0.08, 0.35));
+      if (this.personalityLocked) {
+        this.currentAnim = "sit";
+        this.animHardRestart = true;
+        return;
+      }
+      if (this.rng.chance(0.24)) {
+        this.scheduleAct(this.pk(WALK_ARRIVAL_FLOURISH), this.rb(0.08, 0.35));
       } else {
-        this.queueReturnToDormant(randBetween(0.4, 0.9));
+        this.queueReturnToDormant(this.rb(0.4, 0.9));
       }
     }
   }
 
   private finishWalkingToDormant(): void {
+    this.walkSpeedBoost = 1;
     this.walkPurpose = "roam";
     this.walkTargetX = null;
     this.walkRemaining = 0;
     this.walkEase = 0;
     this.mode = "dormant";
-    if (Math.random() < 0.28) {
-      this.scheduleAct(pick(WALK_ARRIVAL_FLOURISH), randBetween(0.06, 0.28));
+    if (this.rng.chance(0.28)) {
+      this.scheduleAct(this.pk(WALK_ARRIVAL_FLOURISH), this.rb(0.06, 0.28));
       return;
     }
-    this.queueReturnToDormant(randBetween(0.25, 0.55));
+    this.queueReturnToDormant(this.rb(0.25, 0.55));
   }
 
   private travelXBounds(): { minX: number; maxX: number } {
-    const m = this.layout.monitor;
     return {
-      minX: m.left,
-      maxX: m.right - this.petWidthPhysical,
+      minX: 0,
+      maxX: Math.max(0, this.canvasWidth() - this.petDrawWidth),
     };
   }
 
