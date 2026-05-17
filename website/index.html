@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Desktop Cat — a tiny cat that walks along the bottom of your screen. Download for Windows."
+    />
+    <title>Desktop Cat — download</title>
+    <link rel="icon" href="/assets/icon.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <img class="logo" src="/assets/icon.png" width="96" height="96" alt="" />
+        <h1>Desktop Cat</h1>
+        <p class="tagline">
+          A small cat that lives on your desktop. Walks, naps, and judges your
+          workflow. <span id="app-version">v0.1.0</span>
+        </p>
+      </header>
+
+      <section class="card" aria-labelledby="windows-heading">
+        <span class="platform-badge">Windows</span>
+        <h2 id="windows-heading">Download for Windows</h2>
+        <p class="sub">
+          One installer. Multiple cats (1–8), tray menu, start with Windows.
+          Windows 10/11, 64-bit.
+        </p>
+        <a
+          id="windows-download"
+          class="btn btn-windows"
+          href="/downloads/Desktop%20Cat_0.1.0_x64-setup.exe"
+          download
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">
+            <path d="M12 3v12m0 0l4-4m-4 4l-4-4M4 17v2a1 1 0 001 1h14a1 1 0 001-1v-2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Download installer (.exe)
+        </a>
+        <p class="hint">
+          SmartScreen may warn — this app is not signed yet. Use
+          <strong>More info → Run anyway</strong> if you trust this page.
+        </p>
+      </section>
+
+      <section class="card mac-card" aria-labelledby="mac-heading">
+        <span class="platform-badge" style="background: #fff3e0; color: #b45309"
+          >macOS</span
+        >
+        <h2 id="mac-heading">Mac? Build it yourself</h2>
+        <p class="sub">
+          There is no Mac download button here on purpose.
+        </p>
+        <p class="lazy">
+          <strong>Official excuse from the developer:</strong> I am too lazy and
+          do not have enough space on my Mac to install the build tools and ship
+          a <code>.dmg</code>. If you want Desktop Cat on macOS, clone the repo
+          and build it locally — instructions are in
+          <code>BUILD-MAC.md</code>.
+        </p>
+        <ol class="steps">
+          <li>Clone the repo (see link below).</li>
+          <li>
+            On a Mac: install Node, Rust, Xcode CLI tools.
+          </li>
+          <li>
+            Run <code>npm install</code>, <code>npm run sprites</code>,
+            <code>npm run package:mac</code>.
+          </li>
+          <li>Open the <code>.dmg</code> from the <code>release/</code> folder.</li>
+        </ol>
+        <a id="github-repo" class="repo-link" href="https://github.com/minakamatsu/mypetcat"
+          >github.com/minakamatsu/mypetcat</a
+        >
+        <p style="margin: 0.75rem 0 0; font-size: 0.9rem; color: var(--muted)">
+          Clone command:
+        </p>
+        <code id="clone-cmd" style="display: block; margin-top: 0.35rem; padding: 0.65rem 0.85rem; background: #f3efe8; border-radius: 10px; font-size: 0.85rem; overflow-x: auto"
+          >git clone https://github.com/minakamatsu/mypetcat.git</code
+        >
+      </section>
+
+      <section class="card faq" aria-labelledby="faq-heading">
+        <h2 id="faq-heading">FAQ</h2>
+
+        <details>
+          <summary>Can people download my GitHub repo if it is private?</summary>
+          <p>
+            <strong>No.</strong> A private repo is only visible to you and people
+            you explicitly invite as collaborators. Random visitors cannot clone
+            it or browse the code. For Mac users who need to clone and build, you
+            should either <strong>make the repo public</strong> or add each
+            person as a collaborator (impractical for a pet app).
+          </p>
+        </details>
+
+        <details>
+          <summary>Do I need to make the repo public?</summary>
+          <p>
+            For this website’s Windows button: <strong>no</strong> — the
+            installer is hosted on Vercel, not GitHub. For strangers who want to
+            build on Mac from Git: <strong>yes</strong>, unless you only share
+            with friends you add on GitHub.
+          </p>
+        </details>
+
+        <details>
+          <summary>Why is there no Mac download button?</summary>
+          <p>
+            A Mac <code>.dmg</code> must be built on a Mac with Xcode tools. The
+            Windows <code>.exe</code> is built on Windows and bundled with this
+            site. See <code>BUILD-MAC.md</code> in the repo for the full Mac
+            build guide.
+          </p>
+        </details>
+      </section>
+
+      <footer>
+        <p>Made with cats. Not affiliated with any real cat union.</p>
+      </footer>
+    </div>
+    <script src="/config.js"></script>
+    <script src="/main.js" type="module"></script>
+  </body>
+</html>
