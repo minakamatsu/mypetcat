@@ -1,14 +1,22 @@
 :root {
-  --bg: #faf6f0;
-  --bg-card: #ffffff;
-  --ink: #1f1a17;
-  --muted: #6b5f56;
+  color-scheme: dark;
+  --bg: #121110;
+  --bg-card: #1e1c1a;
+  --ink: #f2ebe3;
+  --muted: #a89f94;
   --accent: #e8a838;
-  --accent-dark: #c8871f;
-  --windows: #0078d4;
-  --windows-hover: #106ebe;
-  --border: rgba(31, 26, 23, 0.08);
-  --shadow: 0 18px 50px rgba(31, 26, 23, 0.1);
+  --accent-dark: #f0c060;
+  --windows: #3a9fd9;
+  --windows-hover: #5cb4e8;
+  --border: rgba(242, 235, 227, 0.08);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  --code-bg: #2a2724;
+  --lazy-bg: #2a2418;
+  --lazy-text: #e8d4a8;
+  --lazy-strong: #f5e6c4;
+  --badge-windows-bg: rgba(58, 159, 217, 0.15);
+  --badge-mac-bg: rgba(232, 168, 56, 0.15);
+  --badge-mac-text: #e8a838;
   --radius: 20px;
   --font: "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -29,7 +37,7 @@ body {
   font-family: var(--font);
   color: var(--ink);
   background:
-    radial-gradient(ellipse 80% 50% at 50% -10%, #ffe9b8 0%, transparent 55%),
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(232, 168, 56, 0.12) 0%, transparent 55%),
     var(--bg);
   line-height: 1.6;
 }
@@ -112,8 +120,8 @@ h1 {
 
 .btn-windows {
   background: var(--windows);
-  color: #fff;
-  box-shadow: 0 8px 24px rgba(0, 120, 212, 0.35);
+  color: #0d1117;
+  box-shadow: 0 8px 24px rgba(58, 159, 217, 0.3);
 }
 
 .btn-windows:hover {
@@ -135,13 +143,18 @@ h1 {
   display: inline-block;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  background: #eef4fb;
-  color: var(--windows);
+  background: var(--badge-windows-bg);
+  color: var(--windows-hover);
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   margin-bottom: 0.75rem;
+}
+
+.platform-badge--mac {
+  background: var(--badge-mac-bg);
+  color: var(--badge-mac-text);
 }
 
 .mac-card {
@@ -151,14 +164,14 @@ h1 {
 .mac-card .lazy {
   margin: 1rem 0;
   padding: 0.85rem 1rem;
-  background: #fff8e8;
+  background: var(--lazy-bg);
   border-radius: 12px;
   font-size: 0.95rem;
-  color: #5c4a1e;
+  color: var(--lazy-text);
 }
 
 .mac-card .lazy strong {
-  color: #3d3012;
+  color: var(--lazy-strong);
 }
 
 .steps {
@@ -171,11 +184,28 @@ h1 {
   margin-bottom: 0.5rem;
 }
 
-.steps code {
+.steps code,
+.code-block {
   font-size: 0.88em;
-  background: #f3efe8;
+  background: var(--code-bg);
+  color: var(--ink);
   padding: 0.15rem 0.4rem;
   border-radius: 6px;
+}
+
+.code-block {
+  display: block;
+  margin-top: 0.35rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+.clone-label {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
 .repo-link {
@@ -184,6 +214,10 @@ h1 {
   color: var(--accent-dark);
   font-weight: 600;
   word-break: break-all;
+}
+
+.repo-link:hover {
+  color: var(--accent);
 }
 
 .faq details {
